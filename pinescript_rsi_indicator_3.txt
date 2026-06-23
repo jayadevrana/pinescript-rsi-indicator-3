@@ -1,0 +1,104 @@
+//@version=5
+indicator("RSI","Mycode with Trailing SL reference", overlay = true)
+
+new_day = ta.change(time("D"))
+
+new_day_close = ta.valuewhen(new_day,close,0)
+
+plot(new_day_close , color = color.purple,linewidth = 2)
+
+// rsi1=ta.rsi(close,14)
+// dn_line = input(30)
+// up_line = input(70)
+// g = ta.crossover(rsi1,dn_line) 
+// r = ta.crossunder(rsi1,up_line)
+
+ema_len = input(10)
+ema = ta.ema(close,ema_len)
+
+plot(ema,color = color.yellow,linewidth = 2)
+
+
+buy = ta.crossover(ema,new_day_close)
+sell = ta.crossunder(ema,new_day_close)
+
+
+///////////////
+/////////
+// The Trailing Stop Code
+
+TRAILING_METHOD = input.string('POINTS',"TRAILING METHOD",options = ['POINTS','PERCENTAGE'])
+
+trailPerc = input.float(title='Trailing Stop', minval=0.0, step=0.1, defval=5)  //* 0.01
+
+//detect what was last signal (long or short)
+long_short = 0
+long_last = buy and (nz(long_short[1]) == 0 or nz(long_short[1]) == -1)
+short_last = sell and (nz(long_short[1]) == 0 or nz(long_short[1]) == 1)
+long_short := long_last ? 1 : short_last ? -1 : long_short[1]
+trailPerc1 = 0.00
+trailPerc2 = 0.00
+
+
+if TRAILING_METHOD == 'POINTS' 
+    trailPerc1 := close -  trailPerc
+    trailPerc2 := close +  trailPerc
+
+if TRAILING_METHOD == 'PERCENTAGE'
+    trailPerc1 := close * (1 - trailPerc/100)
+    trailPerc2 := close * (1 + trailPerc/100)
+
+//calculate tsl position
+longStopPrice = 0.0
+shortStopPrice = 0.0
+longStopPrice := if long_short == 1
+    stopValue = trailPerc1// (1 - trailPerc))
+    math.max(stopValue, longStopPrice[1])
+else
+    0
+shortStopPrice := if long_short == -1
+    stopValue = trailPerc2  //* (1 + trailPerc)
+    math.min(stopValue, shortStopPrice[1])
+else
+    999999
+
+//plot tsl
+plot(long_short == 1 ? longStopPrice : na, style=plot.style_linebr, color=color.new(color.lime, 0), linewidth=1, title='Long Trailing Stop') 
+plot(long_short == -1 ? shortStopPrice : na, style=plot.style_linebr, color=color.new(color.red, 0), linewidth=1, title='Short Trailing Stop')  
+
+//remove first bar for SL/TP (you can't enter a trade at bar close THEN hit your SL on that same bar)
+longBar1 = ta.barssince(long_last)
+longBar2 = longBar1 >= 1 ? true : false
+shortBar1 = ta.barssince(short_last)
+shortBar2 = shortBar1 >= 1 ? true : false
+
+//check for TSL hit during a bar
+longSLhit = long_short == 1 and longBar2 and low < longStopPrice[1]
+plotshape(longSLhit, style=shape.labelup, location=location.belowbar, color=color.new(color.gray, 0), size=size.tiny, title='Long TSL', text='Long TSL', textcolor=color.new(color.white, 0))  //4
+shortSLhit = long_short == -1 and shortBar2 and high > shortStopPrice[1]
+plotshape(shortSLhit, style=shape.labeldown, location=location.abovebar, color=color.new(color.gray, 0), size=size.tiny, title='Short TSL', text='Short TSL', textcolor=color.new(color.white, 0))  //5
+
+//reset long_short if SL/TP hit during bar
+long_short := (long_short == 1 or long_short == 0) and longBar2 and longSLhit ? 0 : (long_short == -1 or long_short == 0) and shortBar2 and shortSLhit ? 0 : long_short
+//
+
+//calculate if TSL has changed from last bar
+longDiff = long_short == 1 and longBar2 and longStopPrice != longStopPrice[1] ? true : false
+shortDiff = long_short == -1 and shortBar2 and shortStopPrice != shortStopPrice[1] ? true : false
+
+//set Alerts for Open Long/Short, SL Hit, TP Hit
+alertcondition(condition=long_last, title='Long Alarm', message='Open a Long Trade @ ${{close}}')
+alertcondition(condition=short_last, title='Short Alarm', message='Open a Short Trade @ ${{close}}')
+
+alertcondition(condition=longSLhit, title='Long Trailing Stop', message='Long TSL Hit @ ${{plot_2}}')
+alertcondition(condition=shortSLhit, title='Short Trailing Stop', message='Short TSL Hit @ ${{plot_3}}')
+
+alertcondition(condition=longDiff, title='Long TSL Move', message='Move TSL to ${{plot_2}}')
+alertcondition(condition=shortDiff, title='Short TSL Move', message='Move TSL to ${{plot_3}}')
+
+
+// plotshape(long ? buy : na,color=color.new(color.green, 0), style=shape.labelup, text='Buy', textcolor=color.new(color.white, 0), location=location.belowbar, size=size.small)
+// plotshape(short ? sell : na, color=color.new(color.red, 0), style=shape.labeldown, text='Sell', textcolor=color.new(color.white, 0), location=location.abovebar, size=size.small)
+
+plotshape(buy, color=color.new(color.green, 0), style=shape.labelup, text='Buy', textcolor=color.new(color.white, 0), location=location.belowbar)
+plotshape(sell, color=color.new(color.red, 0), style=shape.labeldown, text='Sell', textcolor=color.new(color.white, 0), location=location.abovebar)
